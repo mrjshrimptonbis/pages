@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Volumetric Tetris</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #111; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        #game-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        
+        #ui-layer {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: #fff;
+            pointer-events: none;
+            text-shadow: 0 0 5px #000;
+        }
+
+        h1 { margin: 0; font-size: 2rem; color: #00d2ff; text-transform: uppercase; letter-spacing: 2px; }
+        .stat-box { margin-top: 10px; font-size: 1.2rem; }
+        .stat-value { font-weight: bold; color: #ff0055; }
+
+        #controls-help {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: #aaa;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 15px;
+            border-radius: 8px;
+            pointer-events: none;
+            font-size: 0.9rem;
+            line-height: 1.6;
+            border-left: 4px solid #00d2ff;
+        }
+
+        #game-over {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 40px;
+            text-align: center;
+            border-radius: 15px;
+            border: 2px solid #ff0055;
+            color: white;
+            z-index: 10;
+        }
+        
+        button {
+            background: #00d2ff;
+            border: none;
+            padding: 10px 25px;
+            color: #000;
+            font-weight: bold;
+            font-size: 1.1rem;
+            cursor: pointer;
+            margin-top: 20px;
+            border-radius: 5px;
+            transition: transform 0.2s;
+        }
+        button:hover { transform: scale(1.05); background: #fff; }
+
+        .key {
+            display: inline-block;
+            background: #333;
+            padding: 2px 6px;
+            border-radius: 4px;
+            border-bottom: 2px solid #111;
+            color: #fff;
+            font-family: monospace;
+            font-weight: bold;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+
+<div id="game-container"></div>
+
+<div id="ui-layer">
+    <h1>Tetris 3D</h1>
+    <div class="stat-box">Score: <span id="score" class="stat-value">0</span></div>
+    <div class="stat-box">Level: <span id="level" class="stat-value">1</span></div>
+</div>
+
+<div id="controls-help">
+    <div><span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> : Move Piece (Forward/Left/Back/Right)</div>
+    <div><span class="key">↑</span> <span class="key">↓</span> : Rotate X-Axis (Pitch)</div>
+    <div><span class="key">←</span> <span class="key">→</span> : Rotate Y-Axis (Yaw)</div>
+    <div><span class="key">Q</span> <span class="key">E</span> : Rotate Z-Axis (Roll)</div>
+    <div><span class="key">SPACE</span> : Hard Drop</div>
+    <div><span class="key">MOUSE DRAG</span> : Rotate Camera</div>
+</div>
+
+<div id="game-over">
+    <h2 style="color: #ff0055; font-size: 2.5rem; margin: 0 0 20px 0;">GAME OVER</h2>
+    <p>Final Score: <span id="final-score">0</span></p>
+    <button onclick="restartGame()">Try Again</button>
+</div>
+
+<script>
+    /**
+     * CONFIGURATION
+     */
+    const GRID_SIZE_X = 5;
+    const GRID_SIZE_Z = 5;
+    const GRID_SIZE_Y = 12; // Height
+    const BLOCK_SIZE = 1;
+    const DROP_INTERVAL_START = 1000;
+
+    /**
+     * GAME STATE
+     */
+    let scene, camera, renderer;
+    let gridHelper, frameMesh;
+    let grid = []; // 3D Array: grid[y][z][x]
+    let activePiece = null;
+    let ghostPieceGroup = null;
+    let activePieceMeshGroup = null;
+    let placedBlocksGroup = new THREE.Group();
+    
+    let lastTime = 0;
+    let dropCounter = 0;
+    let dropInterval = DROP_INTERVAL_START;
+    let isGameOver = false;
+    let isPaused = false;
+    let score = 0;
+    let level = 1;
+
+    // Camera Orbit State
+    let isDragging = false;
+    let previousMousePosition = { x: 0, y: 0 };
+    let cameraAngle = Math.PI / 4; // Horizontal angle
+    let cameraHeight = Math.PI / 6; // Vertical angle (elevation)
+    const cameraDistance = 20;
+
+    /**
+     * SHAPES (Polycubes)
+     * Defined as array of {x, y, z} offsets from center
+     */
+    const SHAPES = [
+        // I (Line)
+        { color: 0x00ffff, blocks: [{x:0,y:0,z:-1}, {x:0,y:0,z:0}, {x:0,y:0,z:1}, {x:0,y:0,z:2}] },
+        // L
+        { color: 0xffaa00, blocks: [{x:0,y:0,z:-1}, {x:0,y:0,z:0}, {x:0,y:0,z:1}, {x:1,y:0,z:1}] },
+        // J
+        { color: 0x0000ff, blocks: [{x:0,y:0,z:-1}, {x:0,y:0,z:0}, {x:0,y:0,z:1}, {x:-1,y:0,z:1}] },
+        // O (Square block)
+        { color: 0xffff00, blocks: [{x:0,y:0,z:0}, {x:1,y:0,z:0}, {x:0,y:0,z:1}, {x:1,y:0,z:1}] },
+        // S
+        { color: 0x00ff00, blocks: [{x:1,y:0,z:0}, {x:0,y:0,z:0}, {x:0,y:0,z:1}, {x:-1,y:0,z:1}] },
+        // T
+        { color: 0xaa00ff, blocks: [{x:0,y:0,z:0}, {x:1,y:0,z:0}, {x:-1,y:0,z:0}, {x:0,y:0,z:1}] },
+        // Z
+        { color: 0xff0000, blocks: [{x:-1,y:0,z:0}, {x:0,y:0,z:0}, {x:0,y:0,z:1}, {x:1,y:0,z:1}] },
+        // Tripod (3D specific)
+        { color: 0xff00ff, blocks: [{x:0,y:0,z:0}, {x:1,y:0,z:0}, {x:0,y:1,z:0}, {x:0,y:0,z:1}] }
+    ];
+
+    /**
+     * INITIALIZATION
+     */
+    function init() {
+        const container = document.getElementById('game-container');
+
+        // Scene
+        scene = new THREE.Scene();
+        scene.fog = new THREE.FogExp2(0x111111, 0.02);
+
+        // Camera
+        camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+        updateCameraPosition();
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x111111);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        container.appendChild(renderer.domElement);
+
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+        scene.add(ambientLight);
+
+        const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+        dirLight.position.set(10, 20, 10);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = 2048;
+        dirLight.shadow.mapSize.height = 2048;
+        scene.add(dirLight);
+
+        const spotLight = new THREE.SpotLight(0x00d2ff, 0.5);
+        spotLight.position.set(-10, 20, -5);
+        scene.add(spotLight);
+
+        // Environment
+        createEnvironment();
+
+        // Input
+        document.addEventListener('keydown', onKeyDown);
+        
+        // Mouse Controls
+        document.addEventListener('mousedown', (e) => { isDragging = true; previousMousePosition = { x: e.clientX, y: e.clientY }; });
+        document.addEventListener('mouseup', () => { isDragging = false; });
+        document.addEventListener('mousemove', onMouseMove);
+        window.addEventListener('resize', onWindowResize, false);
+
+        // Start Game
+        resetGameLogic();
+        spawnPiece();
+        animate();
+    }
+
+    function createEnvironment() {
+        // Floor Grid
+        const gridSize = Math.max(GRID_SIZE_X, GRID_SIZE_Z) * BLOCK_SIZE;
+        gridHelper = new THREE.GridHelper(GRID_SIZE_X * BLOCK_SIZE, GRID_SIZE_X, 0x333333, 0x222222);
+        // Center the grid helper
+        gridHelper.position.set(
+            (GRID_SIZE_X * BLOCK_SIZE) / 2 - 0.5, 
+            -0.5, 
+            (GRID_SIZE_Z * BLOCK_SIZE) / 2 - 0.5
+        );
+        scene.add(gridHelper);
+
+        // Wireframe Box for the play area
+        const boxGeo = new THREE.BoxGeometry(GRID_SIZE_X * BLOCK_SIZE, GRID_SIZE_Y * BLOCK_SIZE, GRID_SIZE_Z * BLOCK_SIZE);
+        const edges = new THREE.EdgesGeometry(boxGeo);
+        frameMesh = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x444444 }));
+        // Center the frame
+        frameMesh.position.set(
+            (GRID_SIZE_X * BLOCK_SIZE) / 2 - 0.5, 
+            (GRID_SIZE_Y * BLOCK_SIZE) / 2 - 0.5, 
+            (GRID_SIZE_Z * BLOCK_SIZE) / 2 - 0.5
+        );
+        scene.add(frameMesh);
+
+        // Group to hold static blocks
+        scene.add(placedBlocksGroup);
+    }
+
+    function resetGameLogic() {
+        score = 0;
+        level = 1;
+        isGameOver = false;
+        dropInterval = DROP_INTERVAL_START;
+        updateUI();
+        
+        // Clear Grid
+        grid = [];
+        for(let y=0; y<GRID_SIZE_Y; y++) {
+            grid[y] = [];
+            for(let z=0; z<GRID_SIZE_Z; z++) {
+                grid[y][z] = [];
+                for(let x=0; x<GRID_SIZE_X; x++) {
+                    grid[y][z][x] = null;
+                }
+            }
+        }
+
+        // Clear Scene Blocks
+        while(placedBlocksGroup.children.length > 0){ 
+            placedBlocksGroup.remove(placedBlocksGroup.children[0]); 
+        }
+        
+        if(activePieceMeshGroup) {
+            scene.remove(activePieceMeshGroup);
+            activePieceMeshGroup = null;
+        }
+        if(ghostPieceGroup) {
+            scene.remove(ghostPieceGroup);
+            ghostPieceGroup = null;
+        }
+
+        document.getElementById('game-over').style.display = 'none';
+    }
+
+    /**
+     * CORE LOGIC
+     */
+
+    function spawnPiece() {
+        const typeIdx = Math.floor(Math.random() * SHAPES.length);
+        const shapeDef = SHAPES[typeIdx];
+        
+        // Clone blocks so we can rotate them without affecting original definition
+        const blocks = shapeDef.blocks.map(b => ({...b}));
+
+        activePiece = {
+            blocks: blocks,
+            color: shapeDef.color,
+            pos: {
+                x: Math.floor(GRID_SIZE_X / 2),
+                y: GRID_SIZE_Y - 1, // Spawn at top
+                z: Math.floor(GRID_SIZE_Z / 2)
+            }
+        };
+
+        // Check spawn collision
+        if (checkCollision(0, 0, 0)) {
+            endGame();
+            return;
+        }
+
+        updateActivePieceVisuals();
+    }
+
+    function checkCollision(offX, offY, offZ, customBlocks = null) {
+        const blocks = customBlocks || activePiece.blocks;
+        const pos = activePiece.pos;
+
+        for (let b of blocks) {
+            const x = pos.x + b.x + offX;
+            const y = pos.y + b.y + offY;
+            const z = pos.z + b.z + offZ;
+
+            // Boundaries
+            if (x < 0 || x >= GRID_SIZE_X || z < 0 || z >= GRID_SIZE_Z || y < 0) {
+                return true;
+            }
+
+            // Existing Blocks (only check if y is within grid height)
+            if (y < GRID_SIZE_Y && grid[y][z][x] !== null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function rotatePiece(axis, direction) {
+        // Axis: 'x', 'y', 'z'
+        // Direction: 1 or -1
+        
+        // 90 degree rotation matrices
+        // X: (x, y, z) -> (x, -z, y)
+        // Y: (x, y, z) -> (z, y, -x)
+        // Z: (x, y, z) -> (-y, x, z)
+
+        const newBlocks = activePiece.blocks.map(b => {
+            let nb = { x: b.x, y: b.y, z: b.z };
+            if (axis === 'x') {
+                // Pitch
+                nb.y = -b.z * direction;
+                nb.z = b.y * direction;
+            } else if (axis === 'y') {
+                // Yaw
+                nb.x = b.z * direction;
+                nb.z = -b.x * direction;
+            } else if (axis === 'z') {
+                // Roll
+                nb.x = -b.y * direction;
+                nb.y = b.x * direction;
+            }
+            // Round to handle float errors if we were using trig, 
+            // but here we swap coordinates so it stays int usually.
+            // Just in case:
+            nb.x = Math.round(nb.x);
+            nb.y = Math.round(nb.y);
+            nb.z = Math.round(nb.z);
+            return nb;
+        });
+
+        // Test Kick (simplistic: just check if valid, if not, don't rotate)
+        // Advanced systems use wall kicks, here we just prevent rotation if invalid
+        if (!checkCollision(0, 0, 0, newBlocks)) {
+            activePiece.blocks = newBlocks;
+            updateActivePieceVisuals();
+        }
+    }
+
+    function movePiece(dx, dy, dz) {
+        if (!checkCollision(dx, dy, dz)) {
+            activePiece.pos.x += dx;
+            activePiece.pos.y += dy;
+            activePiece.pos.z += dz;
+            updateActivePieceVisuals();
+            return true;
+        }
+        return false;
+    }
+
+    function hardDrop() {
+        while (movePiece(0, -1, 0)) {
+            score += 2; // Bonus for hard drop
+        }
+        lockPiece();
+    }
+
+    function lockPiece() {
+        // Add to grid
+        for (let b of activePiece.blocks) {
+            const x = activePiece.pos.x + b.x;
+            const y = activePiece.pos.y + b.y;
+            const z = activePiece.pos.z + b.z;
+
+            // Game Over if locking above grid (should fit within index)
+            if (y >= GRID_SIZE_Y) {
+                endGame();
+                return;
+            }
+            
+            // Should not happen if collision check works, but safety:
+            if(y >= 0 && y < GRID_SIZE_Y && x>=0 && x<GRID_SIZE_X && z>=0 && z<GRID_SIZE_Z){
+                grid[y][z][x] = activePiece.color;
+                addStaticBlock(x, y, z, activePiece.color);
+            }
+        }
+
+        checkLines();
+        spawnPiece();
+    }
+
+    function checkLines() {
+        let linesCleared = 0;
+
+        for (let y = 0; y < GRID_SIZE_Y; y++) {
+            let fullLayer = true;
+            for (let z = 0; z < GRID_SIZE_Z; z++) {
+                for (let x = 0; x < GRID_SIZE_X; x++) {
+                    if (grid[y][z][x] === null) {
+                        fullLayer = false;
+                        break;
+                    }
+                }
+                if (!fullLayer) break;
+            }
+
+            if (fullLayer) {
+                linesCleared++;
+                // Remove layer y
+                // Move everything above y down by 1
+                for (let ly = y; ly < GRID_SIZE_Y - 1; ly++) {
+                    for (let z = 0; z < GRID_SIZE_Z; z++) {
+                        for (let x = 0; x < GRID_SIZE_X; x++) {
+                            grid[ly][z][x] = grid[ly+1][z][x];
+                        }
+                    }
+                }
+                // Clear top layer
+                for (let z = 0; z < GRID_SIZE_Z; z++) {
+                    for (let x = 0; x < GRID_SIZE_X; x++) {
+                        grid[GRID_SIZE_Y - 1][z][x] = null;
+                    }
+                }
+                y--; // Re-check this index as blocks fell into it
+            }
+        }
+
+        if (linesCleared > 0) {
+            // Rebuild static mesh
+            rebuildStaticMesh();
+            // Score Logic
+            const points = [0, 100, 300, 500, 800, 1200]; // 1 to 5 lines? (max is 1 for layer, but multiple layers possible)
+            score += (linesCleared * 1000) * level; // Big points for 3D clear
+            level = Math.floor(score / 5000) + 1;
+            dropInterval = Math.max(100, DROP_INTERVAL_START - (level * 50));
+            updateUI();
+        }
+    }
+
+    /**
+     * VISUALS & RENDERING
+     */
+    function createBlockMesh(color, opacity = 1.0, isGhost = false) {
+        const geometry = new THREE.BoxGeometry(BLOCK_SIZE * 0.95, BLOCK_SIZE * 0.95, BLOCK_SIZE * 0.95);
+        const material = new THREE.MeshStandardMaterial({ 
+            color: color, 
+            roughness: 0.2,
+            metalness: 0.1,
+            transparent: opacity < 1.0,
+            opacity: opacity
+        });
+        
+        // Add glowing edges
+        const mesh = new THREE.Mesh(geometry, material);
+        mesh.castShadow = !isGhost;
+        mesh.receiveShadow = !isGhost;
+
+        if (!isGhost) {
+            const edges = new THREE.EdgesGeometry(geometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 2 }));
+            mesh.add(line);
+        }
+        
+        return mesh;
+    }
+
+    function updateActivePieceVisuals() {
+        if (!activePiece) return;
+
+        // 1. Main Piece
+        if (activePieceMeshGroup) scene.remove(activePieceMeshGroup);
+        activePieceMeshGroup = new THREE.Group();
+
+        for (let b of activePiece.blocks) {
+            const mesh = createBlockMesh(activePiece.color);
+            mesh.position.set(
+                (activePiece.pos.x + b.x) * BLOCK_SIZE,
+                (activePiece.pos.y + b.y) * BLOCK_SIZE,
+                (activePiece.pos.z + b.z) * BLOCK_SIZE
+            );
+            activePieceMeshGroup.add(mesh);
+        }
+        scene.add(activePieceMeshGroup);
+
+        // 2. Ghost Piece
+        if (ghostPieceGroup) scene.remove(ghostPieceGroup);
+        ghostPieceGroup = new THREE.Group();
+
+        // Calculate drop distance
+        let dropDist = 0;
+        while (!checkCollision(0, -dropDist - 1, 0)) {
+            dropDist++;
+        }
+
+        for (let b of activePiece.blocks) {
+            const mesh = createBlockMesh(0xffffff, 0.2, true);
+            mesh.position.set(
+                (activePiece.pos.x + b.x) * BLOCK_SIZE,
+                (activePiece.pos.y + b.y - dropDist) * BLOCK_SIZE,
+                (activePiece.pos.z + b.z) * BLOCK_SIZE
+            );
+            ghostPieceGroup.add(mesh);
+        }
+        scene.add(ghostPieceGroup);
+    }
+
+    function addStaticBlock(x, y, z, color) {
+        const mesh = createBlockMesh(color);
+        mesh.position.set(x * BLOCK_SIZE, y * BLOCK_SIZE, z * BLOCK_SIZE);
+        placedBlocksGroup.add(mesh);
+    }
+
+    function rebuildStaticMesh() {
+        // Clear group
+        while(placedBlocksGroup.children.length > 0){ 
+            placedBlocksGroup.remove(placedBlocksGroup.children[0]); 
+        }
+        // Re-add from grid data
+        for(let y=0; y<GRID_SIZE_Y; y++) {
+            for(let z=0; z<GRID_SIZE_Z; z++) {
+                for(let x=0; x<GRID_SIZE_X; x++) {
+                    if (grid[y][z][x] !== null) {
+                        addStaticBlock(x, y, z, grid[y][z][x]);
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * INPUT & CAMERA
+     */
+    function onKeyDown(e) {
+        if (isGameOver) return;
+
+        switch(e.code) {
+            case 'KeyW': movePiece(0, 0, -1); break;
+            case 'KeyS': movePiece(0, 0, 1); break;
+            case 'KeyA': movePiece(-1, 0, 0); break;
+            case 'KeyD': movePiece(1, 0, 0); break;
+            
+            case 'Space': hardDrop(); break;
+            
+            // Rotation
+            case 'ArrowLeft': rotatePiece('y', -1); break; // Yaw
+            case 'ArrowRight': rotatePiece('y', 1); break;
+            case 'ArrowUp': rotatePiece('x', -1); break; // Pitch
+            case 'ArrowDown': rotatePiece('x', 1); break;
+            case 'KeyQ': rotatePiece('z', 1); break; // Roll
+            case 'KeyE': rotatePiece('z', -1); break;
+        }
+    }
+
+    function onMouseMove(e) {
+        if (isDragging) {
+            const deltaX = e.clientX - previousMousePosition.x;
+            const deltaY = e.clientY - previousMousePosition.y;
+
+            cameraAngle -= deltaX * 0.005;
+            cameraHeight += deltaY * 0.005;
+
+            // Clamp height to avoid flipping over top/bottom completely
+            cameraHeight = Math.max(0.1, Math.min(Math.PI / 2 - 0.1, cameraHeight));
+
+            updateCameraPosition();
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+        }
+    }
+
+    function updateCameraPosition() {
+        const centerX = (GRID_SIZE_X * BLOCK_SIZE) / 2;
+        const centerZ = (GRID_SIZE_Z * BLOCK_SIZE) / 2;
+        const centerY = (GRID_SIZE_Y * BLOCK_SIZE) / 2; // Look at middle height
+
+        const x = centerX + cameraDistance * Math.cos(cameraAngle) * Math.cos(cameraHeight);
+        const y = centerY + cameraDistance * Math.sin(cameraHeight);
+        const z = centerZ + cameraDistance * Math.sin(cameraAngle) * Math.cos(cameraHeight);
+
+        camera.position.set(x, y, z);
+        camera.lookAt(centerX, centerY, centerZ);
+    }
+
+    function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    /**
+     * GAME LOOP
+     */
+    function updateUI() {
+        document.getElementById('score').innerText = score;
+        document.getElementById('level').innerText = level;
+    }
+
+    function endGame() {
+        isGameOver = true;
+        document.getElementById('final-score').innerText = score;
+        document.getElementById('game-over').style.display = 'block';
+    }
+
+    window.restartGame = function() {
+        resetGameLogic();
+        spawnPiece();
+    };
+
+    function animate(time) {
+        requestAnimationFrame(animate);
+
+        if (!isGameOver && !isPaused) {
+            const deltaTime = time - lastTime;
+            
+            if (deltaTime > dropInterval) {
+                if (!movePiece(0, -1, 0)) {
+                    lockPiece();
+                }
+                lastTime = time;
+            }
+        }
+
+        renderer.render(scene, camera);
+    }
+
+    // Initialize
+    init();
+
+</script>
+</body>
+</html>
