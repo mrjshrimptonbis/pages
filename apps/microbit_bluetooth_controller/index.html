@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Microbit Robot Controller</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Space Mono for that 'tech' feel -->
+    <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        :root {
+            /* BBC Microbit Color Palette */
+            --bg-color: #1a1a1a;
+            --panel-color: #000000;
+            --accent-green: #00E463; /* Microbit Logo Green */
+            --accent-red: #FF0000;    /* LED Matrix Red */
+            --text-color: #ffffff;
+            --connector-gold: #E7A600;
+        }
+
+        body {
+            font-family: 'Space Mono', monospace;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            overflow-x: hidden;
+            touch-action: manipulation;
+        }
+
+        /* --- Slider Styling --- */
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+            margin: 10px 0;
+        }
+
+        input[type=range]:focus {
+            outline: none;
+        }
+
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 12px;
+            cursor: pointer;
+            background: #333;
+            border: 2px solid var(--accent-green);
+            border-radius: 6px;
+        }
+
+        input[type=range]::-webkit-slider-thumb {
+            height: 28px;
+            width: 28px;
+            border-radius: 4px; /* Square-ish for retro feel */
+            background: var(--accent-green);
+            cursor: pointer;
+            -webkit-appearance: none;
+            margin-top: -10px;
+            box-shadow: 0 0 10px rgba(0, 228, 99, 0.4);
+            transition: transform 0.1s;
+        }
+
+        input[type=range]::-webkit-slider-thumb:active {
+            transform: scale(1.2);
+            background: #fff;
+        }
+
+        /* --- Buttons --- */
+        .connect-btn {
+            background-color: #333;
+            border: 2px solid var(--accent-green);
+            color: var(--accent-green);
+            transition: all 0.3s ease;
+        }
+        
+        .connect-btn:hover {
+            background-color: var(--accent-green);
+            color: black;
+        }
+
+        .connect-btn.connected {
+            background-color: var(--accent-green);
+            color: black;
+            box-shadow: 0 0 20px var(--accent-green);
+        }
+
+        /* D-Pad Styling */
+        .dpad-btn {
+            background-color: #222;
+            border: 2px solid #444;
+            color: #666;
+            transition: all 0.1s;
+            font-weight: bold;
+        }
+
+        .dpad-btn.active {
+            background-color: var(--accent-red);
+            border-color: var(--accent-red);
+            color: white;
+            box-shadow: 0 0 15px var(--accent-red);
+            transform: scale(0.95);
+        }
+
+        /* Speaker Button */
+        .speaker-btn {
+            background-color: #222;
+            border: 2px solid var(--connector-gold);
+            color: var(--connector-gold);
+            border-radius: 50%;
+            transition: all 0.1s;
+        }
+
+        .speaker-btn.active {
+            background-color: var(--connector-gold);
+            color: black;
+            transform: scale(0.90);
+            box-shadow: 0 0 15px var(--connector-gold);
+        }
+
+        .led-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #333;
+            border-radius: 2px;
+        }
+        .led-dot.on {
+            background-color: var(--accent-red);
+            box-shadow: 0 0 4px var(--accent-red);
+        }
+
+    </style>
+</head>
+<body class="flex flex-col h-screen max-h-screen">
+
+    <!-- Header -->
+    <header class="p-4 flex justify-between items-center border-b border-gray-800 bg-black">
+        <div class="flex items-center gap-3">
+            <!-- Simple Microbit Icon built with divs -->
+            <div class="w-8 h-6 bg-black border border-white rounded-sm flex items-center justify-center gap-[2px]">
+                <div class="led-dot on"></div>
+                <div class="led-dot"></div>
+                <div class="led-dot on"></div>
+            </div>
+            <h1 class="text-xl font-bold tracking-wider text-green-400">MICRO:BIT<span class="text-white text-sm ml-2 opacity-70">CONTROL</span></h1>
+        </div>
+        <button id="connectBtn" class="connect-btn px-6 py-2 rounded-md font-bold text-sm tracking-widest flex items-center gap-2">
+            <span id="btIcon">⚡</span>
+            <span id="btText">CONNECT</span>
+        </button>
+    </header>
+
+    <!-- Main Control Area -->
+    <main class="flex-grow flex flex-col md:flex-row p-4 gap-8 items-center justify-center">
+
+        <!-- Left Column: Sliders -->
+        <div class="w-full md:w-1/3 flex flex-col gap-10 p-8 bg-black rounded-xl border border-gray-800 shadow-2xl relative">
+            <!-- Decorative Gold Edge Connector line -->
+            <div class="absolute bottom-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-600 to-yellow-400 rounded-b-xl opacity-80"></div>
+
+            <!-- Slider 1 -->
+            <div>
+                <div class="flex justify-between mb-3 items-end">
+                    <label class="font-bold text-gray-400 text-sm">SERVO 1 <span class="text-[10px] text-gray-600 block">KEYS: 1 - 0</span></label>
+                    <span id="val1" class="font-mono text-xl text-green-400 font-bold">50</span>
+                </div>
+                <input type="range" id="slider1" min="0" max="100" value="50">
+                <div class="flex justify-between text-[10px] text-gray-600 mt-1 font-mono">
+                    <span>0</span>
+                    <span>50</span>
+                    <span>100</span>
+                </div>
+            </div>
+
+            <!-- Slider 2 -->
+            <div>
+                <div class="flex justify-between mb-3 items-end">
+                    <label class="font-bold text-gray-400 text-sm">SERVO 2 <span class="text-[10px] text-gray-600 block">KEYS: Q - P</span></label>
+                    <span id="val2" class="font-mono text-xl text-green-400 font-bold">50</span>
+                </div>
+                <input type="range" id="slider2" min="0" max="100" value="50">
+                <div class="flex justify-between text-[10px] text-gray-600 mt-1 font-mono">
+                    <span>0</span>
+                    <span>50</span>
+                    <span>100</span>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Right Column: D-Pad -->
+        <div class="w-full md:w-1/3 flex flex-col items-center justify-center p-8 bg-black rounded-xl border border-gray-800 shadow-2xl aspect-square max-w-sm relative">
+            <!-- Decorative Gold Edge Connector line -->
+            <div class="absolute bottom-0 left-0 w-full h-2 bg-gradient-to-r from-yellow-600 to-yellow-400 rounded-b-xl opacity-80"></div>
+
+            <div class="grid grid-cols-3 grid-rows-3 gap-3 w-full h-full max-w-[260px] max-h-[260px]">
+                <!-- Top Row -->
+                <div></div>
+                <button id="btnUp" class="dpad-btn rounded-t-lg flex items-center justify-center text-3xl hover:bg-gray-800">▲</button>
+                <div></div>
+                
+                <!-- Middle Row -->
+                <button id="btnLeft" class="dpad-btn rounded-l-lg flex items-center justify-center text-3xl hover:bg-gray-800">◀</button>
+                
+                <!-- Center Speaker Button -->
+                <div class="flex items-center justify-center">
+                    <button id="btnSpeaker" class="speaker-btn w-16 h-16 flex items-center justify-center text-2xl shadow-lg" title="Horn (Spacebar)">
+                        🔊
+                    </button>
+                </div>
+
+                <button id="btnRight" class="dpad-btn rounded-r-lg flex items-center justify-center text-3xl hover:bg-gray-800">▶</button>
+                
+                <!-- Bottom Row -->
+                <div></div>
+                <button id="btnDown" class="dpad-btn rounded-b-lg flex items-center justify-center text-3xl hover:bg-gray-800">▼</button>
+                <div></div>
+            </div>
+            <div class="mt-4 text-[10px] text-gray-600 uppercase tracking-widest text-center">Use Arrow Keys & Spacebar</div>
+        </div>
+
+    </main>
+
+    <!-- Footer / Log -->
+    <footer class="p-2 bg-black border-t border-gray-900 text-center">
+        <div id="statusLog" class="text-xs text-gray-500 font-mono">> SYSTEM READY</div>
+    </footer>
+
+    <!-- JavaScript Logic -->
+    <script>
+        // --- Configuration ---
+        const UART_SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_TX_CHARACTERISTIC_UUID = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+        const UART_RX_CHARACTERISTIC_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+
+        // --- State ---
+        let uBitDevice;
+        let rxCharacteristic;
+        let connected = false;
+
+        // --- UI Elements ---
+        const connectBtn = document.getElementById('connectBtn');
+        const statusLog = document.getElementById('statusLog');
+        const slider1 = document.getElementById('slider1');
+        const slider2 = document.getElementById('slider2');
+        const val1Display = document.getElementById('val1');
+        const val2Display = document.getElementById('val2');
+
+        const btnUp = document.getElementById('btnUp');
+        const btnDown = document.getElementById('btnDown');
+        const btnLeft = document.getElementById('btnLeft');
+        const btnRight = document.getElementById('btnRight');
+        const btnSpeaker = document.getElementById('btnSpeaker');
+
+        // --- Bluetooth Functions ---
+
+        async function connect() {
+            try {
+                log("> REQUESTING DEVICE...");
+                uBitDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ namePrefix: "BBC micro:bit" }],
+                    optionalServices: [UART_SERVICE_UUID]
+                });
+
+                uBitDevice.addEventListener('gattserverdisconnected', onDisconnected);
+
+                log("> CONNECTING GATT SERVER...");
+                const server = await uBitDevice.gatt.connect();
+
+                log("> GETTING SERVICE...");
+                const service = await server.getPrimaryService(UART_SERVICE_UUID);
+
+                log("> GETTING CHARACTERISTICS...");
+                const txCharacteristic = await service.getCharacteristic(UART_TX_CHARACTERISTIC_UUID);
+                txCharacteristic.startNotifications();
+                txCharacteristic.addEventListener("characteristicvaluechanged", onTxCharacteristicValueChanged);
+
+                rxCharacteristic = await service.getCharacteristic(UART_RX_CHARACTERISTIC_UUID);
+
+                connected = true;
+                updateConnectionUI();
+                log("> CONNECTED_");
+                
+            } catch (error) {
+                log("> ERROR: " + error);
+                console.error(error);
+            }
+        }
+
+        function disconnect() {
+            if (!uBitDevice) return;
+            if (uBitDevice.gatt.connected) {
+                uBitDevice.gatt.disconnect();
+            }
+        }
+
+        function onDisconnected(event) {
+            connected = false;
+            updateConnectionUI();
+            log("> DISCONNECTED_");
+        }
+
+        function updateConnectionUI() {
+            const btText = document.getElementById('btText');
+            if (connected) {
+                connectBtn.classList.add('connected');
+                btText.innerText = "DISCONNECT";
+            } else {
+                connectBtn.classList.remove('connected');
+                btText.innerText = "CONNECT";
+            }
+        }
+
+        // Generic Queue for BLE operations
+        let queue = Promise.resolve();
+        function queueGattOperation(operation) {
+            queue = queue.then(operation, operation);
+            return queue;
+        }
+
+        async function sendUART(data) {
+            if (!connected || !rxCharacteristic) {
+                console.log("Simulated Send:", data);
+                return;
+            }
+
+            let encoder = new TextEncoder();
+            let stringData = data + "\n"; // Adding newline for MakeCode/MicroPython compatibility
+            
+            queueGattOperation(() => rxCharacteristic.writeValue(encoder.encode(stringData))
+                .then(() => console.log("Sent:", data))
+                .catch(error => console.error('Write Error:', error)));
+        }
+
+        function onTxCharacteristicValueChanged(event) {
+            let receivedData = new TextDecoder().decode(event.target.value);
+            console.log("RX:", receivedData);
+        }
+
+        function log(msg) {
+            statusLog.innerText = msg;
+        }
+
+        connectBtn.addEventListener('click', () => {
+            if (connected) disconnect();
+            else connect();
+        });
+
+        // --- Control Logic ---
+
+        function updateSlider(sliderId, value) {
+            const slider = sliderId === 1 ? slider1 : slider2;
+            const display = sliderId === 1 ? val1Display : val2Display;
+            
+            slider.value = value;
+            display.innerText = value;
+            
+            // Format: S1:50
+            sendUART(`S${sliderId}:${value}`);
+        }
+
+        // --- Input Event Listeners ---
+
+        // 1. Slider Mouse/Touch Inputs
+        slider1.addEventListener('input', (e) => updateSlider(1, e.target.value));
+        slider2.addEventListener('input', (e) => updateSlider(2, e.target.value));
+
+        // 2. Keyboard Inputs
+        document.addEventListener('keydown', (e) => {
+            if (e.repeat) return; 
+
+            // Movement
+            switch(e.key) {
+                case "ArrowUp":
+                    btnUp.classList.add('active');
+                    sendUART("up");
+                    break;
+                case "ArrowDown":
+                    btnDown.classList.add('active');
+                    sendUART("down");
+                    break;
+                case "ArrowLeft":
+                    btnLeft.classList.add('active');
+                    sendUART("left");
+                    break;
+                case "ArrowRight":
+                    btnRight.classList.add('active');
+                    sendUART("right");
+                    break;
+                case " ": // Spacebar
+                    e.preventDefault(); // Prevent scrolling
+                    btnSpeaker.classList.add('active');
+                    sendUART("beep");
+                    break;
+            }
+
+            // Slider 1: Keys 1 (0%) to 0 (100%)
+            // Row: 1 2 3 4 5 6 7 8 9 0
+            if (e.key >= '1' && e.key <= '9') {
+                const index = parseInt(e.key) - 1; // 1->0, 9->8
+                const val = Math.round(index * (100 / 9));
+                updateSlider(1, val);
+            } else if (e.key === '0') {
+                updateSlider(1, 100);
+            }
+
+            // Slider 2: Keys Q (0%) to P (100%)
+            // Row: Q W E R T Y U I O P
+            const qRow = ['q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p'];
+            const index = qRow.indexOf(e.key.toLowerCase());
+            if (index !== -1) {
+                const val = Math.round(index * (100 / 9));
+                updateSlider(2, val);
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            switch(e.key) {
+                case "ArrowUp":
+                    btnUp.classList.remove('active');
+                    sendUART("stop");
+                    break;
+                case "ArrowDown":
+                    btnDown.classList.remove('active');
+                    sendUART("stop");
+                    break;
+                case "ArrowLeft":
+                    btnLeft.classList.remove('active');
+                    sendUART("stop");
+                    break;
+                case "ArrowRight":
+                    btnRight.classList.remove('active');
+                    sendUART("stop");
+                    break;
+                case " ": // Spacebar
+                    btnSpeaker.classList.remove('active');
+                    // Optional: send "stop" or silence command if your robot supports it
+                    // sendUART("stop"); 
+                    break;
+            }
+        });
+
+        // 3. Touch/Mouse Buttons
+        const setupButton = (btn, commandStart, commandEnd) => {
+            const start = (e) => {
+                if(e.cancelable) e.preventDefault();
+                btn.classList.add('active');
+                sendUART(commandStart);
+            };
+            const end = (e) => {
+                if(e.cancelable) e.preventDefault();
+                btn.classList.remove('active');
+                if(commandEnd) sendUART(commandEnd);
+            };
+
+            btn.addEventListener('mousedown', start);
+            btn.addEventListener('mouseup', end);
+            btn.addEventListener('mouseleave', end);
+            
+            btn.addEventListener('touchstart', start);
+            btn.addEventListener('touchend', end);
+        };
+
+        setupButton(btnUp, "up", "stop");
+        setupButton(btnDown, "down", "stop");
+        setupButton(btnLeft, "left", "stop");
+        setupButton(btnRight, "right", "stop");
+        
+        // Speaker only sends on press, up to you if it sends stop on release
+        setupButton(btnSpeaker, "beep", null); 
+
+    </script>
+</body>
+</html>
